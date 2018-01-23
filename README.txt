@@ -1,6 +1,3 @@
-# uc-series-price
-Drupal 7 module for Ubercart that allows you add a fixed setup cost(series cost) for a product that is ordered as a multiple.
-
 Ubercart Series Price module README
 
 This module hooks into Ubercart. It is designed for Drupal 7.

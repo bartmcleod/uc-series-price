@@ -1,0 +1,6 @@
+name = UberCart Series Pricing
+description = Allows you to have a fixed and a variable prices component for a given amount of the same product
+package = UberCart Series Pricing
+version = 0.1
+core = 7.x
+files = []

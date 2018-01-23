@@ -1,0 +1,145 @@
+<?php
+
+
+/**
+ * Implements hook_uc_add_to_cart().
+ */
+function uc_series_price_uc_add_to_cart($nid, $qty, $data)
+{
+    // is it a series_cost node? It may not be added on its own
+    $isSeriesCost = isset($data['type']) && 'series_cost' === $data['type'];
+
+    if ($isSeriesCost) {
+        throw new \Exception('This product cannot be added without a series product');
+    }
+
+    // is it a series node?
+    $itIsNotASeries = !isset($data['type']) || 'series' !== $data['type'];
+
+    if ($itIsNotASeries) {
+        return;
+    }
+
+    uc_series_price_add_series_cost($nid);
+}
+
+/**
+ * Implements hook_uc_cart_item_delete().
+ * @param Entity $entity
+ */
+function uc_series_price_uc_cart_item_delete($entity)
+{
+    $isSeries = isset($entity->data['type']) && 'series' === $entity->data['type'];
+
+    // 1. If a series was removed, you should also remove series cost
+    if ($isSeries) {
+        uc_series_price_remove_series_cost($entity->nid);
+    }
+
+    // 2. check everything that is left in the cart, should a series cost be re-added somewhere?
+    // this will occur if two series of the same type were in the cart or if series costs were removed by the user
+    $queryCartItems = "SELECT 
+                            cp.`cart_item_id`, cp.`data`, cp.`nid`
+                        FROM
+                            `uc_cart_products` cp";
+    $stmtCartItems = db_query($queryCartItems);
+
+    while ($row = $stmtCartItems->fetchAssoc()) {
+        // is it a series?
+        $data = unserialize($row['data']);
+        $itIsNotASeries = !isset($data['type']) || 'series' !== $data['type'];
+
+        if ($itIsNotASeries) {
+            continue;
+        }
+
+        uc_series_price_add_series_cost($row['nid']);
+    }
+}
+
+/**
+ * Removes series cost for the given series node id, if not already present in the cart.
+ * @param $nid
+ */
+function uc_series_price_remove_series_cost($nid)
+{
+    $seriesCostProductId = uc_series_price_get_series_cost_nid($nid);
+
+    if (false === $seriesCostProductId) {
+        return;
+    }
+
+    // 2. Find any cart items with this $seriesCostProductId, if there is one, it must be removed
+    $queryCartItems = "SELECT 
+                            cp.`cart_item_id`
+                        FROM
+                            `uc_cart_products` cp
+                        WHERE
+                            cp.`nid` = :nid";
+    $stmtCartItems = db_query($queryCartItems, array('nid' => $seriesCostProductId));
+
+    while ($row = $stmtCartItems->fetchAssoc()) {
+        // it must be removed
+        db_delete('uc_cart_products')
+            ->where('cart_item_id = :cart_item_id', $row)
+            ->execute();
+    }
+}
+
+
+/**
+ * Adds series cost for the given series node id, if not already present in the cart.
+ * @param $nid
+ */
+function uc_series_price_add_series_cost($nid)
+{
+    $seriesCostProductId = uc_series_price_get_series_cost_nid($nid);
+
+    if (false === $seriesCostProductId) {
+        return;
+    }
+
+    // 2. Find any cart items with this $seriesCostProductId, if there is none, one must be added
+    $queryCartItems = "SELECT 
+                            cp.`cart_item_id`, cp.`data`
+                        FROM
+                            `uc_cart_products` cp
+                        WHERE
+                            cp.`nid` = :nid;";
+    $stmtCartItems = db_query($queryCartItems, array('nid' => $seriesCostProductId));
+
+    if ($stmtCartItems->fetchAssoc()) {
+        // it need not be added
+        return;
+    }
+
+    // add it
+    uc_cart_add_item($seriesCostProductId, 1);
+}
+
+function uc_series_price_get_series_cost_nid($nid){
+    // $nid is the product id
+    // As administrator use the Series product class to add the series_cost_product_id field and use that to add the series cost product to the cart
+    // this is done in manage content types
+
+    // 1. see if there is a series_cost_product_id field for the product and what its value is
+    $query = "SELECT 
+            ucsp_series_cost_product_id_value 
+        FROM
+            field_data_ucsp_series_cost_product_id
+        WHERE
+            entity_id = :nid LIMIT 1";
+
+    /** @var DatabaseStatementInterface $stmt */
+    $stmt = db_query($query, array('nid' => (int) $nid));
+    $result = $stmt->fetchAssoc();
+
+    if (!$result) {
+        // nothing to do here, no series cost product id entered ( @todo which is an error an should probably be logged)
+        return false;
+    }
+
+    $seriesCostProductId = (int) $result['ucsp_series_cost_product_id_value'];
+    return $seriesCostProductId;
+}
+
