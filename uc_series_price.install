@@ -10,11 +10,11 @@ function uc_series_price_enable() {
         module_enable(array('uc_product'), TRUE);
     }
 
-    $entity = entity_get_info('uscp_series');
-
-    if (!$entity) {
-        entity_('uscp_series', array());
-    }
+//    $entity = entity_get_info('uscp_series');
+//
+//    if (!$entity) {
+//        entity_('uscp_series', array());
+//    }
 
     $field = field_info_field('ucsp_series_cost_product_id');
 
