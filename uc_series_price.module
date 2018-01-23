@@ -1,26 +1,78 @@
 <?php
-
-
 /**
- * Implements hook_uc_add_to_cart().
+ * @param $entity
+ * @throws Exception
  */
-function uc_series_price_uc_add_to_cart($nid, $qty, $data)
+function uc_series_price_uc_cart_item_presave($entity)
 {
     // is it a series_cost node? It may not be added on its own
-    $isSeriesCost = isset($data['type']) && 'ucsp_series_cost' === $data['type'];
+    $isSeriesCost = uc_series_price_is_series_cost($entity);
 
     if ($isSeriesCost) {
-        throw new \Exception('This product cannot be added without a series product');
+        // check if series product is in the cart
+        $nid = $entity->nid;
+        $seriesNid = uc_series_price_get_series_nid($nid);
+        $cartItems = uc_cart_get_contents();
+
+//        if(0 === count($cartItems)){
+//            throw new \Exception('The series cost may only be added when the series product is in the cart
+//            , but the cart is empty.');
+//        }
+
+        $cartItemIds = array();
+
+        foreach ($cartItems as $cartItem) {
+            $cartItemIds[] = $cartItem->nid;
+        }
+
+        if (!in_array($seriesNid, $cartItemIds)) {
+            // not present in cart
+            throw new Exception('The series cost may only be added when the series product is in the cart');
+        }
+
+        $entity->qty = 1;
+        return;
     }
+}
+
+/**
+ * Implements hook_uc_cart_item_insert().
+ */
+function uc_series_price_uc_cart_item_insert($entity)
+{
+    $data = $entity->data;
 
     // is it a series node?
-    $itIsNotASeries = !isset($data['type']) || 'series' !== $data['type'];
+    $itIsNotASeries = !isset($data['type']) || 'ucsp_series' !== $data['type'];
 
     if ($itIsNotASeries) {
         return;
     }
 
+    $nid = $entity->nid;
     uc_series_price_add_series_cost($nid);
+}
+
+/**
+ * Use this to figure out if an entity represents series cost (setup cost) for a series.
+ *
+ * @param $entity
+ * @return bool
+ */
+function uc_series_price_is_series_cost($entity)
+{
+    $nid = (int) $entity->nid;
+
+    $query = "SELECT 
+            ucsp_series_cost_product_id_value 
+        FROM
+            field_data_ucsp_series_cost_product_id";
+
+    /** @var DatabaseStatementInterface $stmt */
+    $stmt = db_query($query, array('nid' => $nid));
+    $result = $stmt->fetchCol();
+
+    return in_array($nid, $result);
 }
 
 /**
@@ -58,7 +110,7 @@ function uc_series_price_uc_cart_item_delete($entity)
 }
 
 /**
- * Removes series cost for the given series node id, if not already present in the cart.
+ * Removes series cost for the given series node id, if the series is not present in the cart.
  * @param $nid
  */
 function uc_series_price_remove_series_cost($nid)
@@ -117,11 +169,13 @@ function uc_series_price_add_series_cost($nid)
     uc_cart_add_item($seriesCostProductId, 1);
 }
 
+/**
+ * Finds the node id for the series cost based on the $nid of the series.
+ *
+ * @param $nid series node id
+ * @return bool|int
+ */
 function uc_series_price_get_series_cost_nid($nid){
-    // $nid is the product id
-    // As administrator use the Series product class to add the series_cost_product_id field and use that to add the series cost product to the cart
-    // this is done in manage content types
-
     // 1. see if there is a series_cost_product_id field for the product and what its value is
     $query = "SELECT 
             ucsp_series_cost_product_id_value 
@@ -141,5 +195,34 @@ function uc_series_price_get_series_cost_nid($nid){
 
     $seriesCostProductId = (int) $result['ucsp_series_cost_product_id_value'];
     return $seriesCostProductId;
+}
+
+
+/**
+ * Finds the node id for the series based on the $nid of the series cost.
+ *
+ * @param $nid series cost node id
+ * @return bool|int
+ */
+function uc_series_price_get_series_nid($nid){
+    // 1. select the entity id based on the value of the ucsp_series_cost_product_id_value, which points to the series cost
+    $query = "SELECT 
+            entity_id 
+        FROM
+            field_data_ucsp_series_cost_product_id
+        WHERE
+            ucsp_series_cost_product_id_value = :nid LIMIT 1";
+
+    /** @var DatabaseStatementInterface $stmt */
+    $stmt = db_query($query, array('nid' => (int) $nid));
+    $result = $stmt->fetchAssoc();
+
+    if (!$result) {
+        // nothing to do here, no series cost product id entered ( @todo which is an error an should probably be logged)
+        return false;
+    }
+
+    $seriesProductId = (int) $result['entity_id'];
+    return $seriesProductId;
 }
 
