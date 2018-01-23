@@ -7,7 +7,7 @@
 function uc_series_price_uc_add_to_cart($nid, $qty, $data)
 {
     // is it a series_cost node? It may not be added on its own
-    $isSeriesCost = isset($data['type']) && 'series_cost' === $data['type'];
+    $isSeriesCost = isset($data['type']) && 'ucsp_series_cost' === $data['type'];
 
     if ($isSeriesCost) {
         throw new \Exception('This product cannot be added without a series product');
@@ -29,7 +29,7 @@ function uc_series_price_uc_add_to_cart($nid, $qty, $data)
  */
 function uc_series_price_uc_cart_item_delete($entity)
 {
-    $isSeries = isset($entity->data['type']) && 'series' === $entity->data['type'];
+    $isSeries = isset($entity->data['type']) && 'ucsp_series' === $entity->data['type'];
 
     // 1. If a series was removed, you should also remove series cost
     if ($isSeries) {
@@ -47,7 +47,7 @@ function uc_series_price_uc_cart_item_delete($entity)
     while ($row = $stmtCartItems->fetchAssoc()) {
         // is it a series?
         $data = unserialize($row['data']);
-        $itIsNotASeries = !isset($data['type']) || 'series' !== $data['type'];
+        $itIsNotASeries = !isset($data['type']) || 'ucsp_series' !== $data['type'];
 
         if ($itIsNotASeries) {
             continue;

@@ -21,7 +21,9 @@ cost". But that's not something you will want to bother your customers with, rig
 Ubercart Series Price tries to solve the issue for you.
 
 It requires you to add two product classes, with the following ids:
-- series
-- series_cost
+- ucsp_series
+- ucsp_series_cost
 
-The series class required a field:
+The series class required a field that is automatically setup for you when you enable the module.
+
+I know I could have added the classes automatically too, but at the moment, I don't have the time for that. PR welcome.
