@@ -36,10 +36,13 @@ function uc_series_price_enable() {
             'field_name' => 'ucsp_series_cost_product_id',
             'entity_type' => 'node',
             'bundle' => 'ucsp_series',
+            'required' => true,
             'label' => $label,
             'widget' => array(
                 'type' => 'text',
+                'weight' => -100,
             ),
+
         );
 
         field_create_instance($instance);
