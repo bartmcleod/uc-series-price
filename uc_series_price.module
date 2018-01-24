@@ -14,15 +14,25 @@ function uc_series_price_uc_cart_item_presave($entity)
         $seriesNid = uc_series_price_get_series_nid($nid);
         $cartItems = uc_cart_get_contents();
 
-//        if(0 === count($cartItems)){
-//            throw new \Exception('The series cost may only be added when the series product is in the cart
-//            , but the cart is empty.');
-//        }
+        if(0 === count($cartItems)){
+            throw new \Exception('The series cost may only be added when the series product is in the cart
+            , but the cart is empty.');
+        }
 
         $cartItemIds = array();
 
         foreach ($cartItems as $cartItem) {
-            $cartItemIds[] = $cartItem->nid;
+            // different cart item already has the same series cost, not allowed!
+            $cartItemisNewOrDifferent = $entity->is_new || $cartItem->cart_item_id !== $entity->cart_item_id;
+            if (
+                $nid == $cartItem->nid
+                && $cartItemisNewOrDifferent
+                && 0 != $cartItem->qty // @todo: needed?
+            ) {
+                throw new Exception("The series cost for node $seriesNid are already in the cart");
+            }
+
+            $cartItemIds[$cartItem->cart_item_id] = $cartItem->nid;
         }
 
         if (!in_array($seriesNid, $cartItemIds)) {
@@ -40,6 +50,18 @@ function uc_series_price_uc_cart_item_presave($entity)
  */
 function uc_series_price_uc_cart_item_insert($entity)
 {
+    uc_series_price_check_if_series_cost_must_be_added($entity);
+}
+
+/**
+ * Implements hook_uc_cart_item_insert().
+ */
+function uc_series_price_uc_cart_item_update($entity)
+{
+    uc_series_price_check_if_series_cost_must_be_added($entity);
+}
+
+function uc_series_price_check_if_series_cost_must_be_added($entity) {
     $data = $entity->data;
 
     // is it a series node?
@@ -61,18 +83,20 @@ function uc_series_price_uc_cart_item_insert($entity)
  */
 function uc_series_price_is_series_cost($entity)
 {
-    $nid = (int) $entity->nid;
+    $node = node_load($entity->nid);
+    return 'ucsp_series_cost' === $node->type;
+}
 
-    $query = "SELECT 
-            ucsp_series_cost_product_id_value 
-        FROM
-            field_data_ucsp_series_cost_product_id";
-
-    /** @var DatabaseStatementInterface $stmt */
-    $stmt = db_query($query, array('nid' => $nid));
-    $result = $stmt->fetchCol();
-
-    return in_array($nid, $result);
+/**
+ * Use this to figure out if an entity represents a series product.
+ *
+ * @param int $nid
+ * @return bool
+ */
+function uc_series_price_is_series($nid)
+{
+    $node = node_load($nid);
+    return 'ucsp_series' === $node->type;
 }
 
 /**
@@ -81,31 +105,26 @@ function uc_series_price_is_series_cost($entity)
  */
 function uc_series_price_uc_cart_item_delete($entity)
 {
-    $isSeries = isset($entity->data['type']) && 'ucsp_series' === $entity->data['type'];
-
     // 1. If a series was removed, you should also remove series cost
-    if ($isSeries) {
+    $nid1 = $entity->nid;
+
+    if (uc_series_price_is_series($nid1)) {
         uc_series_price_remove_series_cost($entity->nid);
+        return;
     }
 
     // 2. check everything that is left in the cart, should a series cost be re-added somewhere?
     // this will occur if two series of the same type were in the cart or if series costs were removed by the user
-    $queryCartItems = "SELECT 
-                            cp.`cart_item_id`, cp.`data`, cp.`nid`
-                        FROM
-                            `uc_cart_products` cp";
-    $stmtCartItems = db_query($queryCartItems);
+    $cartItems = uc_cart_get_contents();
 
-    while ($row = $stmtCartItems->fetchAssoc()) {
-        // is it a series?
-        $data = unserialize($row['data']);
-        $itIsNotASeries = !isset($data['type']) || 'ucsp_series' !== $data['type'];
+    foreach($cartItems as $cartItem){
+        $nid = $cartItem->nid;
 
-        if ($itIsNotASeries) {
+        if (!uc_series_price_is_series($nid)) {
             continue;
         }
 
-        uc_series_price_add_series_cost($row['nid']);
+        uc_series_price_add_series_cost($nid);
     }
 }
 
@@ -122,26 +141,23 @@ function uc_series_price_remove_series_cost($nid)
     }
 
     // 2. Find any cart items with this $seriesCostProductId, if there is one, it must be removed
-    $queryCartItems = "SELECT 
-                            cp.`cart_item_id`
-                        FROM
-                            `uc_cart_products` cp
-                        WHERE
-                            cp.`nid` = :nid";
-    $stmtCartItems = db_query($queryCartItems, array('nid' => $seriesCostProductId));
+    $cartItems = uc_cart_get_contents();
 
-    while ($row = $stmtCartItems->fetchAssoc()) {
-        // it must be removed
-        db_delete('uc_cart_products')
-            ->where('cart_item_id = :cart_item_id', $row)
-            ->execute();
+    foreach($cartItems as $cartItem){
+        if ($seriesCostProductId == $cartItem->nid) {
+            // it must be removed
+            $args = ['cart_item_id' => $cartItem->cart_item_id];
+            db_delete('uc_cart_products')
+                ->where('cart_item_id = :cart_item_id', $args)
+                ->execute();
+        }
     }
 }
 
 
 /**
  * Adds series cost for the given series node id, if not already present in the cart.
- * @param $nid
+ * @param $nid The node id of the series product, for which the cost should be added
  */
 function uc_series_price_add_series_cost($nid)
 {
@@ -152,17 +168,12 @@ function uc_series_price_add_series_cost($nid)
     }
 
     // 2. Find any cart items with this $seriesCostProductId, if there is none, one must be added
-    $queryCartItems = "SELECT 
-                            cp.`cart_item_id`, cp.`data`
-                        FROM
-                            `uc_cart_products` cp
-                        WHERE
-                            cp.`nid` = :nid;";
-    $stmtCartItems = db_query($queryCartItems, array('nid' => $seriesCostProductId));
+    $cartItems = uc_cart_get_contents();
 
-    if ($stmtCartItems->fetchAssoc()) {
-        // it need not be added
-        return;
+    foreach($cartItems as $cartItem){
+        if ($seriesCostProductId == $cartItem->nid && 0 != $cartItem->qty) {
+            return;
+        }
     }
 
     // add it
